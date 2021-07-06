@@ -9,26 +9,19 @@ class DbAdapter:
         except FileNotFoundError:
             try:
                 file = open("card.s3db", "w")
-                self.connection_db = sqlite3.connect(file,timeout=15)
+                self.connection_db = sqlite3.connect(file, timeout=15)
             except PermissionError:
                 print("You don't have permission to create files in this directory")
         self.cursor = self.connection_db.cursor()
         self.cursor.execute(
-            "CREATE TABLE IF NOT EXISTS card (id INTEGER UNIQUE,number TEXT UNIQUE,pin TEXT,balance INTEGER DEFAULT 0);")
+            "create table if not exists card (id integer auto_increment,number text unique,pin text,balance integer default 0,primary key(id));")
         self.connection_db.commit()
-        self.cursor.execute('select max(id) from card')
-        self.new_id = self.cursor.fetchone()[0]
-        if self.new_id is None:
-            self.new_id = 1
+
 
     def db_add_account(self, number, pin):
         balance = 0
-        self.cursor.execute('select max(id) from card')
-        self.new_id = self.cursor.fetchone()[0]
-        if self.new_id is None:
-            self.new_id = 1
-        insert_query = "insert into card values({l[0]},{l[1]},{l[2]},{l[3]});".format(
-            l=[str((self.new_id + 1)), str(number), str(pin), str(balance)])
+        insert_query = "insert into card(number,pin,balance) values({l[0]},{l[1]},{l[2]});".format(
+            l=[str(number), str(pin), str(balance)])
         self.cursor.execute(insert_query)
         self.connection_db.commit()
 
@@ -69,9 +62,14 @@ class DbAdapter:
             if int(money) > current_balance1:
                 raise RuntimeError("Not enough money!\n")
             else:
-                self.db_update_balance(-money, current)
-                self.db_update_balance(money, trans_number)
-
+                cur_bal1 = -int(money) + self.db_get_balance(current)
+                update_query = "update card set balance = {l[0]} where number = {l[1]}".format(l=[cur_bal1, current])
+                self.cursor.execute(update_query)
+                cur_bal = int(money) + self.db_get_balance(trans_number)
+                update_query = "update card set balance = {l[0]} where number = {l[1]}".format(
+                    l=[cur_bal, trans_number])
+                self.cursor.execute(update_query)
+                self.connection_db.commit()
 
     def db_delete_acc(self, card):
         delete_query = "delete from card where number = {}".format(card)
@@ -120,27 +118,25 @@ class Bank:
         card_number = self.luhn()
         pin = "".join([str(ra(0, 9)) for _ in range(4)])
         self.db.db_add_account(card_number, pin)
-        return card_number,pin
+        return card_number, pin
 
-    def login(self,card_input,pin_input):
+    def login(self, card_input, pin_input):
         if self.db.db_card_exists(card_input):
             info = self.db.db_get_card_info(card_input)
-            if info[0] == card_input:
-                if info[1] == pin_input:
-                    self.current_account = card_input
-                    return True
-        else:
-            return False
+            if info[1] == pin_input:
+                self.current_account = card_input
+                return True
+        return False
 
     def check_balance(self):
         return self.db.db_get_balance(self.current_account)
 
+    def add_income(self, inc, account):
+        self.db.db_update_balance(inc, account)
 
-    def add_income(self,inc,account):
-        self.db.db_update_balance(inc,account)
-
-
-    def do_transfer(self,trans_number,money):
+    def do_transfer(self, trans_number, money):
+        # trans_number - card number where money is sent to
+        # money - sum of money that is sent
         check = self.db.db_card_exists(trans_number)
         if not check:
             raise RuntimeError("Such a card does not exist.\n")
@@ -149,8 +145,8 @@ class Bank:
             if int(money) > current_balance1:
                 return False
             else:
-                self.add_income(int(money),trans_number)
-                self.add_income(-int(money),self.current_account)
+                self.add_income(int(money), trans_number)
+                self.add_income(-int(money), self.current_account)
                 return True
 
     def close_acc(self):
@@ -169,7 +165,7 @@ class Main:
     def login(self):
         card_input = input("Enter your card number:")
         pin_input = input("Enter your PIN:")
-        if self.bank.login(card_input,pin_input):
+        if self.bank.login(card_input, pin_input):
             print("You have successfully logged in!\n")
         else:
             print("Wrong card number or PIN!\n")
@@ -188,7 +184,7 @@ class Main:
 
     def add_income(self):
         inc = input("Enter income:\n")
-        self.bank.add_income(inc,self.bank.current_account)
+        self.bank.add_income(inc, self.bank.current_account)
         print("Income was added!\n")
 
     def transfer(self):
@@ -196,14 +192,13 @@ class Main:
         trans_number = input("Enter card number:\n")
         money = input("Enter how much money you want to transfer:\n")
         try:
-            d = self.bank.do_transfer(trans_number,money)
+            d = self.bank.do_transfer(trans_number, money)
             if d:
                 print("Success!\n")
             else:
                 print("Not enough money!\n")
         except RuntimeError:
             print("Such a card does not exist.\n")
-
 
     def close_acc(self):
         self.bank.close_acc()
@@ -214,32 +209,37 @@ class Main:
         self.bank.logout()
 
     def main_menu(self):
-        options_logged_in = {"1":["1. Balance",self.balance],
-                                     "2":["2. Add income",self.add_income],
-                                     "3":["3. Do transfer",self.transfer],
-                                     "4":["4. Close account",self.close_acc],
-                                     "5":["5. Log out",self.logout],
-                                     "0":["0. Exit",self.exit]
-                }
+        options_logged_in = {"1": ["1. Balance", self.balance],
+                             "2": ["2. Add income", self.add_income],
+                             "3": ["3. Do transfer", self.transfer],
+                             "4": ["4. Close account", self.close_acc],
+                             "5": ["5. Log out", self.logout],
+                             "0": ["0. Exit", self.exit]
+                             }
 
-        options_not_logged_in = {"1":["1. Create an account",self.create_acc],
-                                "2":["2. Log into account",self.login],
-                                "0":["0. Exit",self.exit]
+        options_not_logged_in = {"1": ["1. Create an account", self.create_acc],
+                                 "2": ["2. Log into account", self.login],
+                                 "0": ["0. Exit", self.exit]
                                  }
-
 
         while not self.need_exit:
             if self.bank.current_account is None:
                 for i in options_not_logged_in.keys():
                     print(options_not_logged_in[i][0])
                 answer = input()
-                options_not_logged_in[answer][1]()
+                try:
+                    options_not_logged_in[answer][1]()
+                except KeyError:
+                    print("Such option doesn't exist, choose one from the list")
             else:
 
                 for i in options_logged_in.keys():
                     print(options_logged_in[i][0])
                 answer1 = input()
-                options_logged_in[answer1][1]()
+                try:
+                    options_logged_in[answer1][1]()
+                except KeyError:
+                    print("Such option doesn't exist, choose one from the list")
         print("Bye!")
 
 
