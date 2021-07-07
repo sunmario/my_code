@@ -13,10 +13,14 @@ class DbAdapter:
             except PermissionError:
                 print("You don't have permission to create files in this directory")
         self.cursor = self.connection_db.cursor()
-        self.cursor.execute(
-            "create table if not exists card (id integer auto_increment,number text unique,pin text,balance integer default 0,primary key(id));")
+        query = "create table if not exists card " \
+                "(id integer auto_increment," \
+                "number text unique," \
+                "pin text," \
+                "balance integer default 0," \
+                "primary key(id));"
+        self.cursor.execute(query)
         self.connection_db.commit()
-
 
     def db_add_account(self, number, pin):
         balance = 0
@@ -40,7 +44,8 @@ class DbAdapter:
             if exist is not None:
                 return True
         except IndexError:
-            return False
+            pass
+        return False
 
     def db_get_card_info(self, number):
         check_query = "select number,pin from card where number = {}".format(number)
@@ -56,11 +61,11 @@ class DbAdapter:
 
     def db_do_transfer(self, current, trans_number, money):
         if not self.db_card_exists(trans_number):
-            raise RuntimeError("Such a card does not exist.\n")
+            raise RuntimeError("Such card doesn't exist!")
         else:
             current_balance1 = self.db_get_balance(current)
             if int(money) > current_balance1:
-                raise RuntimeError("Not enough money!\n")
+                raise RuntimeError("Not enough money!")
             else:
                 cur_bal1 = -int(money) + self.db_get_balance(current)
                 update_query = "update card set balance = {l[0]} where number = {l[1]}".format(l=[cur_bal1, current])
@@ -137,17 +142,11 @@ class Bank:
     def do_transfer(self, trans_number, money):
         # trans_number - card number where money is sent to
         # money - sum of money that is sent
-        check = self.db.db_card_exists(trans_number)
-        if not check:
-            raise RuntimeError("Such a card does not exist.\n")
-        else:
-            current_balance1 = self.db.db_get_balance(self.current_account)
-            if int(money) > current_balance1:
-                return False
-            else:
-                self.add_income(int(money), trans_number)
-                self.add_income(-int(money), self.current_account)
-                return True
+        try:
+            self.db.db_do_transfer(self.current_account, trans_number, money)
+            return True
+        except RuntimeError as e:
+            raise e
 
     def close_acc(self):
         self.db.db_delete_acc(self.current_account)
@@ -192,13 +191,10 @@ class Main:
         trans_number = input("Enter card number:\n")
         money = input("Enter how much money you want to transfer:\n")
         try:
-            d = self.bank.do_transfer(trans_number, money)
-            if d:
-                print("Success!\n")
-            else:
-                print("Not enough money!\n")
-        except RuntimeError:
-            print("Such a card does not exist.\n")
+            self.bank.do_transfer(trans_number, money)
+            print("Success!\n")
+        except RuntimeError as e:
+            print(e)
 
     def close_acc(self):
         self.bank.close_acc()
